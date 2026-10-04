@@ -82,7 +82,7 @@ include ../lib/common.Makefile
 	daemon-tests-transform daemon-tests-http daemon-tests-heuristic daemon-tests-asymmetric \
 	daemon-tests-dtx-no-shift daemon-tests-rtcp daemon-tests-redis-subscribe daemon-tests-rtp-ext \
 	daemon-tests-bundle daemon-tests-dtls \
-	daemon-tests-recording daemon-tests-create daemon-tests-alias \
+	daemon-tests-recording daemon-tests-create daemon-tests-created-subscriptions daemon-tests-alias \
 	daemon-tests-kernel-api daemon-tests-dtmf-fanout daemon-tests-dtx-dtmf daemon-tests-dtx-clock daemon-tests-mixer-dtx
 
 TESTS := test-bitstr aes-crypt aead-aes-crypt test-const_str_hash.strhash
@@ -133,7 +133,7 @@ daemon-tests: daemon-tests-main daemon-tests-jb daemon-tests-pubsub daemon-tests
 	daemon-tests-transcode-config daemon-tests-codec-prefs daemon-tests-http daemon-tests-heuristic \
 	daemon-tests-asymmetric daemon-tests-rtcp daemon-tests-redis-subscribe daemon-tests-rtp-ext \
 	daemon-tests-bundle daemon-tests-dtls \
-	daemon-tests-recording daemon-tests-create \
+	daemon-tests-recording daemon-tests-create daemon-tests-created-subscriptions \
 	daemon-tests-dtx daemon-tests-dtx-cn daemon-tests-dtx-no-shift daemon-tests-dtx-dtmf daemon-tests-dtx-clock \
 	daemon-tests-mixer-dtx \
 	daemon-tests-alias \
@@ -182,6 +182,9 @@ daemon-tests-pubsub:	daemon-test-deps
 
 daemon-tests-create:	daemon-test-deps
 	./auto-test-helper "$@" perl -I../perl auto-daemon-tests-create.pl
+
+daemon-tests-created-subscriptions:	daemon-test-deps
+	./auto-test-helper "$@" perl -I../perl auto-daemon-tests-created-subscriptions.pl
 
 daemon-tests-alias:	daemon-test-deps
 	./auto-test-helper "$@" perl -I../perl auto-daemon-tests-alias.pl
