@@ -49,6 +49,7 @@ static void meta_free(void *ptr) {
 	t_hash_table_destroy(mf->metadata_parsed);
 	g_ptr_array_free(mf->tags, TRUE);
 	g_ptr_array_free(mf->streams, TRUE);
+	g_clear_pointer(&mf->payloads, g_ptr_array_unref);
 	g_free(mf);
 }
 
@@ -175,7 +176,20 @@ static void meta_stream_details(metafile_t *mf, unsigned long snum, char *conten
 	mf->media_rec_slots = media_rec_slots;
 	mix_set_channel_slots(mf->mix, media_rec_slots);
 	mix_set_channel_slots(mf->tls_mix, media_rec_slots);
-	stream_details(mf, snum, tag, media_sdp_id, media_rec_slot-1);
+	stream_details(mf, snum, tag, media, media_sdp_id, media_rec_slot-1);
+}
+
+
+// mf->payloads_lock is held
+static payload_map_t *payload_map_get(metafile_t *mf, unsigned long mnum) {
+	if (mnum >= mf->payloads->len)
+		g_ptr_array_set_size(mf->payloads, mnum + 1);
+	payload_map_t *ret = g_ptr_array_index(mf->payloads, mnum);
+	if (!ret) {
+		ret = g_new0(__typeof(*ret), 1);
+		g_ptr_array_index(mf->payloads, mnum) = ret;
+	}
+	return ret;
 }
 
 
@@ -185,21 +199,15 @@ static void meta_rtp_payload_type(metafile_t *mf, unsigned long mnum, unsigned i
 {
 	dbg("payload type in media %lu num %u is %s", mnum, payload_num, payload_type);
 
-	int ptime = 0;
-
-	mnum--;
-	if (mnum < G_N_ELEMENTS(mf->media_ptimes))
-		ptime = mf->media_ptimes[mnum];
-
 	if (payload_num >= 128) {
 		ilog(LOG_ERR, "Payload type number %u is invalid", payload_num);
 		return;
 	}
 	if (decoding_enabled) {
 		pthread_mutex_lock(&mf->payloads_lock);
-		mf->payload_types[payload_num] = g_string_chunk_insert(mf->gsc,
-				payload_type);
-		mf->payload_ptimes[payload_num] = ptime;
+		payload_map_t *payloads = payload_map_get(mf, mnum);
+		payloads->types[payload_num] = g_string_chunk_insert(mf->gsc, payload_type);
+		payloads->ptimes[payload_num] = payloads->ptime;
 		pthread_mutex_unlock(&mf->payloads_lock);
 	}
 }
@@ -215,8 +223,8 @@ static void meta_rtp_fmtp(metafile_t *mf, unsigned long mnum, unsigned int paylo
 	}
 	if (decoding_enabled) {
 		pthread_mutex_lock(&mf->payloads_lock);
-		mf->payload_formats[payload_num] = g_string_chunk_insert(mf->gsc,
-				format);
+		payload_map_t *payloads = payload_map_get(mf, mnum);
+		payloads->formats[payload_num] = g_string_chunk_insert(mf->gsc, format);
 		pthread_mutex_unlock(&mf->payloads_lock);
 	}
 }
@@ -225,10 +233,11 @@ static void meta_rtp_fmtp(metafile_t *mf, unsigned long mnum, unsigned int paylo
 // mf is locked
 static void meta_ptime(metafile_t *mf, unsigned long mnum, int ptime)
 {
-	mnum--;
-	if (mnum >= G_N_ELEMENTS(mf->media_ptimes))
-		return;
-	mf->media_ptimes[mnum] = ptime;
+	if (decoding_enabled) {
+		pthread_mutex_lock(&mf->payloads_lock);
+		payload_map_get(mf, mnum)->ptime = ptime;
+		pthread_mutex_unlock(&mf->payloads_lock);
+	}
 }
 
 // mf is locked
@@ -351,8 +360,9 @@ static metafile_t *metafile_get(char *name) {
 
 	if (decoding_enabled) {
 		pthread_mutex_init(&mf->payloads_lock, NULL);
+		mf->payloads = g_ptr_array_new_with_free_func(g_free);
 		pthread_mutex_init(&mf->mix_lock, NULL);
-		mf->ssrc_hash = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, ssrc_free);
+		mf->ssrc_hash = ssrc_hash_new();
 	}
 
 	g_hash_table_insert(metafiles, mf->name, mf);

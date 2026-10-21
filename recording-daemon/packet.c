@@ -47,26 +47,48 @@ void ssrc_free(void *p) {
 	g_free(s);
 }
 
+static guint ssrc_key_hash(gconstpointer ptr) {
+	const __typeof__(((ssrc_t *) 0)->key) *key = ptr;
+	uint64_t stream_id = key->stream_id;
+	uint64_t ssrc = key->ssrc;
+	return (guint) (stream_id ^ (stream_id >> 32) ^ ssrc ^ (ssrc >> 32));
+}
+
+static gboolean ssrc_key_equal(gconstpointer a, gconstpointer b) {
+	const __typeof__(((ssrc_t *) 0)->key) *left = a;
+	const __typeof__(((ssrc_t *) 0)->key) *right = b;
+	return left->stream_id == right->stream_id && left->ssrc == right->ssrc;
+}
+
+GHashTable *ssrc_hash_new(void) {
+	return g_hash_table_new_full(ssrc_key_hash, ssrc_key_equal, NULL, ssrc_free);
+}
+
 // mf must be unlocked; returns ssrc locked
 static ssrc_t *ssrc_get(stream_t *stream, unsigned long ssrc) {
 	metafile_t *mf = stream->metafile;
+	__typeof__(((ssrc_t *) 0)->key) key = {
+		.stream_id = stream->id,
+		.ssrc = ssrc,
+	};
 	pthread_mutex_lock(&mf->lock);
 	if (!mf->ssrc_hash) {
 		pthread_mutex_unlock(&mf->lock);
 		return NULL;
 	}
-	ssrc_t *ret = g_hash_table_lookup(mf->ssrc_hash, GUINT_TO_POINTER(ssrc));
+	ssrc_t *ret = g_hash_table_lookup(mf->ssrc_hash, &key);
 	if (ret)
 		goto out;
 
 	ret = g_new0(__typeof(*ret), 1);
 	pthread_mutex_init(&ret->lock, NULL);
+	ret->key = key;
 	ret->metafile = mf;
 	ret->stream = stream;
 	ret->ssrc = ssrc;
 	packet_sequencer_init(&ret->sequencer, (void (*)(seq_packet_t *)) packet_free, false);
 
-	g_hash_table_insert(mf->ssrc_hash, GUINT_TO_POINTER(ssrc), ret);
+	g_hash_table_insert(mf->ssrc_hash, &ret->key, ret);
 
 out:
 	pthread_mutex_lock(&ret->lock);
@@ -103,9 +125,12 @@ static void packet_decode(ssrc_t *ssrc, packet_t *packet) {
 	if (G_UNLIKELY(!ssrc->decoders[payload_type])) {
 		metafile_t *mf = ssrc->metafile;
 		pthread_mutex_lock(&mf->payloads_lock);
-		char *payload_str = mf->payload_types[payload_type];
-		char *format = mf->payload_formats[payload_type];
-		int ptime = mf->payload_ptimes[payload_type];
+		payload_map_t *payloads = NULL;
+		if (ssrc->stream->media_id < mf->payloads->len)
+			payloads = g_ptr_array_index(mf->payloads, ssrc->stream->media_id);
+		char *payload_str = payloads ? payloads->types[payload_type] : NULL;
+		char *format = payloads ? payloads->formats[payload_type] : NULL;
+		int ptime = payloads ? payloads->ptimes[payload_type] : 0;
 		pthread_mutex_unlock(&mf->payloads_lock);
 
 		if (!payload_str) {

@@ -138,11 +138,12 @@ void stream_open(metafile_t *mf, unsigned long id, char *name) {
 	epoll_add(stream->fd, EPOLLIN, &stream->handler);
 }
 
-void stream_details(metafile_t *mf, unsigned long id, unsigned long tag, unsigned int media_sdp_id,
-		unsigned int channel_slot)
+void stream_details(metafile_t *mf, unsigned long id, unsigned long tag, unsigned int media_id,
+		unsigned int media_sdp_id, unsigned int channel_slot)
 {
 	stream_t *stream = stream_get(mf, id);
 	stream->tag = tag;
+	stream->media_id = media_id;
 	stream->media_sdp_id = media_sdp_id;
 	if (channel_slot >= mix_num_inputs) {
 		stream->channel_slot = channel_slot % mix_num_inputs;

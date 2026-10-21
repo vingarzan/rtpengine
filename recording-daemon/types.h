@@ -81,6 +81,7 @@ struct stream_s {
 	handler_t handler;
 	unsigned int forwarding_on:1;
 	int64_t start_time_us;
+	unsigned int media_id;
 	unsigned int media_sdp_id;
 	unsigned int channel_slot;
 };
@@ -117,6 +118,10 @@ struct tls_fwd_s {
 
 struct ssrc_s {
 	pthread_mutex_t lock;
+	struct {
+		unsigned long stream_id;
+		unsigned long ssrc;
+	} key;
 	stream_t *stream;
 	metafile_t *metafile;
 	unsigned long ssrc;
@@ -125,6 +130,16 @@ struct ssrc_s {
 	output_t *output;
 	tls_fwd_t *tls_fwd;
 };
+
+
+struct payload_map_s {
+	char *types[128];
+	char *formats[128];
+	int ptimes[128];
+	int ptime;
+};
+
+typedef struct payload_map_s payload_map_t;
 
 
 struct tag_s {
@@ -178,10 +193,7 @@ struct metafile_s {
 	int forward_failed;
 
 	pthread_mutex_t payloads_lock;
-	char *payload_types[128];
-	char *payload_formats[128];
-	int payload_ptimes[128];
-	int media_ptimes[4];
+	GPtrArray *payloads;
 
 	unsigned int recording_on:1;
 	unsigned int forwarding_on:1;
